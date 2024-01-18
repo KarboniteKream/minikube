@@ -26,6 +26,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	cmdConfig "k8s.io/minikube/cmd/minikube/cmd/config"
 	"k8s.io/minikube/pkg/minikube/config"
 	"k8s.io/minikube/pkg/minikube/exit"
 	"k8s.io/minikube/pkg/minikube/image"
@@ -34,6 +35,9 @@ import (
 	"k8s.io/minikube/pkg/minikube/reason"
 	docker "k8s.io/minikube/third_party/go-dockerclient"
 )
+
+// cacheImageConfigKey is the config field name used to store which images we have previously cached
+const cacheImageConfigKey = "cache"
 
 var (
 	allNodes bool
@@ -50,6 +54,7 @@ var (
 	imgDaemon  bool
 	imgRemote  bool
 	overwrite  bool
+	useConfig  bool
 	tag        string
 	push       bool
 	dockerFile string
@@ -146,6 +151,13 @@ var loadImageCmd = &cobra.Command{
 				exit.Error(reason.GuestImageLoad, "Failed to load image", err)
 			}
 		}
+
+		if useConfig {
+			// Add images to config file
+			if err := cmdConfig.AddToConfigMap(cacheImageConfigKey, args); err != nil {
+				exit.Error(reason.InternalAddConfig, "Failed to update config", err)
+			}
+		}
 	},
 }
 
@@ -165,7 +177,7 @@ func readFile(w io.Writer, tmp string) error {
 	return nil
 }
 
-// saveImageCmd represents the image load command
+// saveImageCmd represents the image save command
 var saveImageCmd = &cobra.Command{
 	Use:     "save IMAGE [ARCHIVE | -]",
 	Short:   "Save a image from minikube",
@@ -231,6 +243,12 @@ $ minikube image unload image busybox
 	Args:    cobra.MinimumNArgs(1),
 	Aliases: []string{"remove", "unload"},
 	Run: func(cmd *cobra.Command, args []string) {
+		if useConfig {
+			if err := cmdConfig.DeleteFromConfigMap(cacheImageConfigKey, args); err != nil {
+				exit.Error(reason.InternalDelConfig, "Failed to delete images from config", err)
+			}
+		}
+
 		profile, err := config.LoadProfile(viper.GetString(config.ProfileName))
 		if err != nil {
 			exit.Error(reason.Usage, "loading profile", err)
@@ -390,6 +408,7 @@ func init() {
 	loadImageCmd.Flags().BoolVar(&imgDaemon, "daemon", false, "Cache image from docker daemon")
 	loadImageCmd.Flags().BoolVar(&imgRemote, "remote", false, "Cache image from remote registry")
 	loadImageCmd.Flags().BoolVar(&overwrite, "overwrite", true, "Overwrite image even if same image:tag name exists")
+	loadImageCmd.Flags().BoolVar(&useConfig, "persist", false, "Persist the image in cache")
 	imageCmd.AddCommand(loadImageCmd)
 	imageCmd.AddCommand(removeImageCmd)
 	imageCmd.AddCommand(pullImageCmd)
